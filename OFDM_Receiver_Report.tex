@@ -63,9 +63,48 @@ The receiver implements: (1) Timing synchronization (Schmidl \& Cox), (2) Two-st
 
 \section{Implementation and Key Algorithms}
 
-\textbf{System Overview:} We implemented a complete OFDM transceiver with 64-QAM modulation, pilot insertion at IEEE 802.11 positions, and proper \texttt{ifftshift} operation. The channel model includes AWGN, Rayleigh fading, and CFO.
+\subsection{System Overview}
+We implemented a complete OFDM transceiver with 64-QAM modulation, pilot insertion at IEEE 802.11 positions, and proper \texttt{ifftshift} operation. The channel model includes AWGN, Rayleigh fading, and CFO.
 
-\textbf{Receiver Chain:} (1) Timing synchronization using Schmidl \& Cox correlation $M(d) = |P(d)|^2/(R(d))^2$, (2) Two-stage CFO estimation: integer via pilot correlation $\hat{\epsilon}_{int} = \arg\max_k |\sum_p H^*[p] \cdot Y[p+k]|$ and fractional via pilot phase difference, (3) LS/MMSE channel estimation $\hat{H}_{LS}[k] = Y[k]/X[k]$, and (4) ZF/MMSE equalization $\hat{X}_{ZF}[k] = Y[k]/\hat{H}[k]$.
+\subsection{Timing Synchronization}
+The Schmidl \& Cox algorithm detects frame boundaries using a repeated preamble structure:
+\begin{equation}
+M(d) = \frac{|P(d)|^2}{(R(d))^2}
+\end{equation}
+where $P(d)$ is the correlation between the two halves of the preamble and $R(d)$ is the energy normalization term.
+
+\subsection{CFO Estimation and Correction}
+\textbf{Integer CFO Estimation} uses pilot correlation in the frequency domain:
+\begin{equation}
+\hat{\epsilon}_{int} = \arg\max_k \left| \sum_{p} H^*[p] \cdot Y[p+k] \right|
+\end{equation}
+where $H[p]$ is the ideal pilot template and $Y[p+k]$ is the received spectrum shifted by $k$ subcarriers.
+
+\textbf{Fractional CFO Estimation} uses phase difference between pilot subcarriers:
+\begin{equation}
+\hat{\epsilon}_{frac} = \frac{1}{2\pi \Delta k} \angle\left( \sum_{p_1, p_2} Y^*[p_1] \cdot Y[p_2] \right)
+\end{equation}
+
+\subsection{Channel Estimation and Equalization}
+\textbf{Least Squares (LS):}
+\begin{equation}
+\hat{H}_{LS}[k] = \frac{Y[k]}{X[k]}
+\end{equation}
+
+\textbf{MMSE Channel Estimation:}
+\begin{equation}
+\hat{H}_{MMSE}[k] = \frac{\sigma_h^2}{\sigma_h^2 + \sigma_n^2} \hat{H}_{LS}[k]
+\end{equation}
+
+\textbf{Zero-Forcing Equalization:}
+\begin{equation}
+\hat{X}_{ZF}[k] = \frac{Y[k]}{\hat{H}[k]}
+\end{equation}
+
+\textbf{MMSE Equalization:}
+\begin{equation}
+\hat{X}_{MMSE}[k] = \frac{\hat{H}^*[k]}{|\hat{H}[k]|^2 + \sigma_n^2/\sigma_s^2} Y[k]
+\end{equation}
 
 \begin{figure}[H]
     \centering
@@ -83,11 +122,20 @@ The receiver implements: (1) Timing synchronization (Schmidl \& Cox), (2) Two-st
 
 \section{Critical Problem and Solution}
 
-\textbf{Challenge:} We encountered a critical bug causing $\approx 50\%$ BER despite individually correct components. The root cause was incorrect pilot/data extraction after \texttt{fftshift}.
+\subsection{Major Challenge: Pilot Extraction Bug}
+We encountered a critical bug causing $\approx 50\%$ BER (random guessing performance) despite individually correct components. The root cause was incorrect pilot and data subcarrier extraction after FFT processing.
 
-\textbf{Root Cause:} The original implementation incorrectly applied additional shift to pilot indices: \texttt{pilot\_indices\_shifted = (pilot\_indices\_natural + N//2) \% N}.
+\subsection{Root Cause Analysis}
+Through systematic debugging, we identified that the issue stemmed from incorrect indexing when extracting pilot and data subcarriers from the frequency-domain signal after \texttt{fftshift} operation. The original implementation incorrectly applied an additional shift to pilot indices:
 
-\textbf{Solution:} Use natural-order pilot indices directly after \texttt{fftshift}: \texttt{pilot\_indices\_centered = pilot\_indices\_natural}. This critical fix resolved the BER performance issues.
+\texttt{pilot\_indices\_shifted = (pilot\_indices\_natural + N//2) \% N}
+
+\subsection{Solution}
+The correct approach uses natural-order pilot indices directly after \texttt{fftshift}:
+
+\texttt{pilot\_indices\_centered = pilot\_indices\_natural}
+
+This subtle but critical fix resolved the BER performance issues and enabled proper receiver operation. The key insight is that after \texttt{fftshift}, the spectrum is already centered, so no additional shift is needed for pilot extraction.
 
 \begin{figure}[H]
     \centering
